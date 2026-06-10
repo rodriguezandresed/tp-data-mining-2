@@ -1,0 +1,447 @@
+---
+title: "Aplicación de la Metodología KDD a una Cadena Internacional de Hoteles"
+subtitle: "Introducción a Data Mining · Maestría en Explotación de Datos y Gestión del Conocimiento · Universidad Austral"
+date: "`r paste0(format(Sys.Date(),'%d'), ' de ', c('enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre')[as.integer(format(Sys.Date(),'%m'))], ' de ', format(Sys.Date(),'%Y'))`"
+lang: es
+geometry: "margin=2.5cm"
+fontsize: 12pt
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+    number_sections: false
+    fig_caption: true
+header-includes:
+  - \usepackage{booktabs}
+  - \usepackage{float}
+  - \usepackage{graphicx}
+  - \usepackage{grffile}
+  - \usepackage{titling}
+  - \setlength{\droptitle}{1cm}
+  - \pretitle{\begin{center}\includegraphics[width=5cm]{Austral logo.png}\\[1.5em]\LARGE\bfseries}
+  - \posttitle{\par\end{center}\vspace{0.5em}}
+  - \usepackage{fancyhdr}
+  - \setlength{\headheight}{14.5pt}
+  - \addto\captionsspanish{\renewcommand{\tablename}{Tabla}}
+  - \renewcommand\contentsname{\'Indice}
+  - \pagestyle{fancy}
+  - \fancyhf{}
+  - \fancyhead[L]{\small IDM --- Caso 1}
+  - \fancyhead[R]{}
+  - \fancyfoot[C]{\thepage}
+  - \renewcommand{\headrulewidth}{0.4pt}
+  - \usepackage{etoolbox}
+  - \pretocmd{\tableofcontents}{\clearpage}{}{}
+  - \apptocmd{\tableofcontents}{\clearpage}{}{}
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(kableExtra)
+
+knitr::opts_chunk$set(
+  echo      = FALSE,
+  warning   = FALSE,
+  message   = FALSE,
+  fig.pos   = "H",
+  out.width = "80%",
+  fig.align = "center"
+)
+```
+
+<!-- PÁGINA DE INTEGRANTES -->
+
+\newpage
+\thispagestyle{empty}
+
+\vspace*{8cm}
+
+\begin{center}
+
+{\LARGE \textbf{Integrantes del grupo}}
+
+\vspace{2.5em}
+
+{\large Andres Eduardo Rodriguez Hernandez}
+
+\vspace{1em}
+
+{\large Nombre Apellido}
+
+\vspace{1em}
+
+{\large Nombre Apellido}
+
+\end{center}
+
+\newpage
+
+# Introducción
+
+El presente trabajo tiene por objetivo desarrollar la metodología KDD (*Knowledge Discovery from Data*) aplicada al caso de una cadena internacional de hoteles que busca extraer conocimiento útil a partir de los datos generados por sus huéspedes.
+
+La metodología KDD, descripta por Han et al. (2012) como un proceso iterativo de siete pasos, constituye el marco conceptual que organiza el análisis. El proceso abarca desde la preparación de los datos hasta la presentación del conocimiento obtenido, con la minería de datos como etapa central.
+
+Los problemas de negocio identificados en el caso son dos:
+
+- **Problema 1 (P1):** Determinar qué anuncios de televisión enviar a cada huésped durante su estadía, con especial atención a los primeros días, cuando la información disponible sobre el huésped es escasa (*cold start*).
+- **Problema 2 (P2):** Seleccionar qué hoteles de la cadena incluir en el mailing personalizado enviado a ex huéspedes con el fin de generar nuevas reservas.
+
+```{r tabla-fuentes}
+fuentes <- data.frame(
+  Sistema           = c("Check-in", "Tarjeta de acceso", "Transacciones",
+                        "Canal de TV", "Formulario de salida", "Histórico inter-hotel"),
+  `Datos generados` = c(
+    "Demografía (edad, origen, idioma, ocupación) y cuestionario de preferencias",
+    "Uso de gimnasio, piscina y bares (servicios gratuitos)",
+    "Compras en bares, restaurantes y tiendas del hotel",
+    "Anuncios mostrados e interacciones del huésped",
+    "Evaluaciones 1-5 por ítem y comentarios en texto libre",
+    "Estadías previas en cualquier hotel de la cadena"
+  ),
+  check.names = FALSE
+)
+
+knitr::kable(
+  fuentes,
+  booktabs = TRUE,
+  caption  = "Fuentes de datos disponibles en la cadena hotelera",
+  align    = c("l", "l"),
+  linesep  = ""
+) |>
+  kableExtra::kable_styling(latex_options = c("HOLD_position", "scale_down")) |>
+  kableExtra::column_spec(1, bold = TRUE, width = "3.5cm") |>
+  kableExtra::column_spec(2, width = "10cm")
+```
+
+*Nota.* Elaboración propia a partir del enunciado del caso.
+
+\newpage
+
+# Limpieza de Datos (*Data Cleaning*)
+
+La limpieza de datos consiste en la eliminación de ruido e inconsistencias previo a cualquier análisis; los errores no tratados pueden conducir a la derivación de patrones erróneos (Han et al., 2012).
+
+## Problemas identificados en el caso
+
+A continuación se detallan las principales fuentes de imperfección de los datos en el contexto hotelero:
+
+- **Valores faltantes en el cuestionario inicial:** una proporción de huéspedes omite responder preguntas al momento del check-in, lo que genera registros incompletos en el perfil demográfico.
+- **Formularios de evaluación parciales:** al momento del checkout, es frecuente que determinadas preguntas queden sin respuesta, en especial aquellas que requieren comentarios escritos.
+- **Comentarios en múltiples idiomas:** el texto libre del formulario de evaluación puede estar redactado en español, inglés, portugués u otros idiomas, lo que requiere un tratamiento previo antes de cualquier análisis textual.
+- **Inconsistencias entre sistemas de distintos países:** los hoteles de la cadena pueden operar con formatos de fecha, monedas y nomenclaturas de servicios distintas según el país de operación.
+- **Registros duplicados de huéspedes:** un mismo huésped puede aparecer registrado con variantes de su nombre o documento en distintas propiedades de la cadena.
+
+## Tratamiento propuesto
+
+- Los **campos numéricos faltantes** (edad, monto de gasto) se estiman a partir de los valores observados en huéspedes con perfil demográfico similar.
+- Las **inconsistencias de formato** entre países se resuelven mediante reglas de estandarización aplicadas durante la importación de datos de cada hotel (fechas en formato ISO, montos convertidos a una moneda de referencia única).
+- Los **duplicados** se detectan a través de la clave compuesta `(código de país, número de pasaporte)`, que garantiza unicidad global. El número de pasaporte es único únicamente dentro de un mismo país, por lo que su combinación con el código de país resulta indispensable en un contexto internacional. El correo electrónico se emplea exclusivamente como dato de contacto, dado que los huéspedes pueden modificarlo o compartirlo entre miembros de una familia.
+- Los **comentarios en texto libre** se someten a una normalización de idioma y ortografía antes de cualquier procesamiento analítico.
+
+\newpage
+
+# Integración de Datos (*Data Integration*)
+
+La integración de datos consiste en la combinación de múltiples fuentes en un repositorio unificado; su resultado típico es un *data warehouse*, repositorio centralizado que consolida información de diversas fuentes bajo un esquema común (Han et al., 2012).
+
+## Problema concreto
+
+Los datos de la cadena hotelera se encuentran distribuidos entre distintos hoteles y países, con sistemas informáticos posiblemente incompatibles entre sí. A fin de que el proceso de minería de datos opere a nivel de toda la cadena, es necesario consolidar todas las fuentes en un único repositorio centralizado.
+
+## Implementación propuesta
+
+Se propone la construcción de un *data warehouse* centralizado que integre las siguientes fuentes: sistema de check-in, tarjeta de acceso, sistema de transacciones, formularios de evaluación e historial de estadías anteriores. La clave de integración entre fuentes es el identificador canónico del huésped: la combinación `(código de país, número de pasaporte)`, tal como se define en el paso anterior.
+
+El proceso de extracción, transformación y carga (ETL) opera de forma periódica, con la importación de los registros generados por cada hotel durante el período anterior y su consolidación bajo el esquema unificado del *data warehouse*. Esto garantiza que la información disponible para el análisis sea consistente y comparable entre todas las propiedades de la cadena.
+
+\newpage
+
+# Selección de Datos (*Data Selection*)
+
+La selección de datos consiste en la recuperación, desde el repositorio integrado, de los atributos y registros pertinentes para la tarea de análisis específica (Han et al., 2012). No todos los datos disponibles resultan relevantes para cada problema; esta etapa permite reducir la dimensionalidad y eliminar el ruido irrelevante.
+
+## Para el Problema 1 --- Anuncios durante la estadía
+
+Para cada huésped activo, se seleccionan los siguientes atributos:
+
+- Perfil demográfico: edad, país de origen, idioma, tipo de viaje (individual, pareja, familia).
+- Respuestas al cuestionario inicial completado al check-in.
+- Registros de uso de la tarjeta de acceso durante la estadía en curso: servicios utilizados, frecuencia y franja horaria.
+- Historial de compras y servicios de estadías anteriores en la cadena.
+
+Se excluyen los registros de huéspedes con estadía de una única noche, dado que el tiempo disponible es insuficiente para el aprendizaje de preferencias. Asimismo, se descartan los atributos con una proporción elevada de valores faltantes que no puedan estimarse de forma confiable.
+
+## Para el Problema 2 --- Mailing personalizado
+
+Del historial completo de la cadena se seleccionan:
+
+- Secuencia de hoteles visitados por cada huésped (tipo, ubicación geográfica, temporada del año).
+- Evaluaciones promedio otorgadas por tipo de hotel en estadías previas.
+- Tiempo transcurrido desde la última estadía, a fin de identificar huéspedes con baja actividad reciente.
+
+\newpage
+
+# Transformación de Datos (*Data Transformation*)
+
+La transformación de datos consiste en convertir y consolidar los datos en formatos aptos para los algoritmos de minería, mediante operaciones de resumen, agregación y normalización (Han et al., 2012).
+
+## Transformaciones sobre el perfil del huésped
+
+```{r tabla-transf-perfil}
+t1 <- data.frame(
+  `Atributo original`   = c("Edad (valor continuo)", "Gasto total", "País de origen"),
+  Transformacion        = c("Discretización en rangos",
+                            "Normalización entre hoteles y monedas",
+                            "Agrupación en regiones geográficas"),
+  `Atributo resultante` = c("joven (<30) / adulto (30-60) / senior (>60)",
+                            "Valor relativo comparable entre propiedades",
+                            "Europa / América Latina / Asia / Otros"),
+  check.names = FALSE
+)
+
+knitr::kable(
+  t1,
+  booktabs = TRUE,
+  caption  = "Transformaciones sobre el perfil demográfico del huésped",
+  align    = c("l", "l", "l"),
+  linesep  = ""
+) |>
+  kableExtra::kable_styling(latex_options = c("HOLD_position")) |>
+  kableExtra::column_spec(1, width = "4cm") |>
+  kableExtra::column_spec(2, width = "5cm") |>
+  kableExtra::column_spec(3, width = "5.5cm")
+```
+
+*Nota.* Elaboración propia.
+
+## Transformaciones sobre el comportamiento en estadía (P1)
+
+```{r tabla-transf-comportamiento}
+t2 <- data.frame(
+  `Atributo original`   = c("Registros de acceso por servicio",
+                            "Montos de compra por categoría",
+                            "Hora de actividad registrada"),
+  Transformacion        = c("Agregación como frecuencia de uso por día de estadía",
+                            "Proporción sobre el gasto total",
+                            "Discretización en franjas horarias"),
+  `Atributo resultante` = c("visitas_gimnasio/día, visitas_piscina/día, etc.",
+                            "ratio_gastronomía, ratio_tienda, ratio_bebidas",
+                            "mañana / tarde / noche"),
+  check.names = FALSE
+)
+
+knitr::kable(
+  t2,
+  booktabs = TRUE,
+  caption  = "Transformaciones sobre el comportamiento del huésped durante la estadía",
+  align    = c("l", "l", "l"),
+  linesep  = ""
+) |>
+  kableExtra::kable_styling(latex_options = c("HOLD_position")) |>
+  kableExtra::column_spec(1, width = "4cm") |>
+  kableExtra::column_spec(2, width = "5cm") |>
+  kableExtra::column_spec(3, width = "5.5cm")
+```
+
+*Nota.* Elaboración propia.
+
+## Transformaciones sobre el historial de estadías (P2)
+
+- Los **tipos de hotel visitados** se expresan como frecuencia relativa de cada tipo (playa, ciudad, montaña) sobre el total de estadías del huésped.
+- Las **evaluaciones** por ítem se agregan como promedio por categoría (gastronomía, instalaciones, atención al cliente).
+
+El resultado de esta etapa es un vector de atributos numéricos por huésped, apto para ser procesado por los modelos de minería descriptos en el paso siguiente.
+
+\newpage
+
+# Minería de Datos (*Data Mining*)
+
+La minería de datos constituye el paso central del proceso KDD: en esta etapa se aplican métodos inteligentes sobre los datos preparados para extraer patrones de interés, clasificados en tareas **descriptivas** (caracterización, discriminación, asociación, clustering) y **predictivas** (clasificación, regresión) (Han et al., 2012).
+
+## Problema 1a --- Anuncios durante la estadía
+
+### Reglas de Asociación
+
+La minería de reglas de asociación, descripta en Han et al. (2012), permite identificar conjuntos de ítems que co-ocurren frecuentemente en las transacciones. En el contexto del caso, la unidad de análisis es cada estadía: los "ítems" son los servicios utilizados y los productos adquiridos mediante la tarjeta de acceso.
+
+Del historial de transacciones de toda la cadena se extraen reglas del tipo:
+
+- `{usa_gimnasio, compra_agua_mineral}` $\Rightarrow$ `interesado_en_spa` [*support* = 2%, *confidence* = 65%]
+- `{visita_bar_nocturno, compra_snacks}` $\Rightarrow$ `interesado_en_show_nocturno` [*support* = 3%, *confidence* = 70%]
+
+Al registrarse un nuevo evento en la tarjeta de acceso, estas reglas permiten identificar en tiempo real la categoría de anuncio más pertinente para el huésped. Las reglas que no superen los umbrales mínimos de *support* y *confidence* son descartadas en el paso de evaluación (Han et al., 2012), a fin de evitar recomendaciones basadas en coincidencias estadísticas sin sustento real.
+
+### Clasificación
+
+La clasificación es definida por Han et al. (2012) como el proceso de construcción de un modelo que describe y distingue clases de datos a partir de un conjunto de entrenamiento. En el presente caso, el modelo se construye sobre el historial de huéspedes anteriores con los siguientes elementos:
+
+- **Entrada:** perfil del huésped (atributos demográficos y de comportamiento transformados en el paso anterior).
+- **Salida:** categoría de anuncio con la que el huésped interactuó en estadías previas.
+
+El modelo resultante se representa como un **árbol de decisión** (Han et al., 2012), cuyas ramas expresan reglas interpretables por el equipo de marketing, del tipo: *"si el huésped pertenece al grupo etario senior y utilizó el spa, mostrar anuncio de gastronomía; si pertenece al grupo joven y asistió al gimnasio, mostrar anuncio de actividades deportivas."* Con el perfil actualizado del huésped al término de cada día, el árbol predice la categoría de anuncio más relevante para el día siguiente.
+
+### Clustering
+
+El análisis de clustering, descripto en Han et al. (2012), permite agrupar objetos por similitud sin necesidad de etiquetas previas. En el presente caso, se emplea para segmentar a los huéspedes activos de acuerdo con su perfil de comportamiento. Cada segmento resultante tiene asociado un ranking de categorías de anuncios, construido a partir del historial de interacciones de huéspedes con perfil similar. Esta técnica resulta de especial utilidad cuando el historial individual de un huésped es aún escaso.
+
+## Problema 1b --- Primeros Días de la Estadía (*Cold Start*)
+
+Al momento de la llegada, el huésped no dispone de historial conductual en la estadía actual. Solo se cuenta con los datos demográficos relevados en el check-in y las respuestas al cuestionario inicial. Este subproblema responde al requerimiento explícito del caso de ofrecer una sugerencia razonable durante los primeros días, cuando el sistema dispone de escasas oportunidades de aprender los hábitos del huésped.
+
+La estrategia propuesta opera en dos fases:
+
+**Fase 1 --- Día 1:** mediante las técnicas de **caracterización y discriminación** (Han et al., 2012), se analiza el historial de huéspedes anteriores para identificar qué rasgos demográficos distinguen a los grupos con respuesta diferenciada por categoría de anuncio. El resultado es un conjunto de segmentos predefinidos sobre la base demográfica:
+
+- Familia con hijos $\rightarrow$ anuncios de actividades infantiles y excursiones familiares.
+- Pareja joven $\rightarrow$ anuncios de vida nocturna y actividades de aventura.
+- Adulto mayor con viaje individual $\rightarrow$ anuncios de gastronomía y tratamientos de spa.
+
+**Fase 2 --- Día 2 en adelante:** a medida que se acumulan registros de uso de la tarjeta de acceso, las reglas de asociación y el árbol de clasificación se incorporan de forma progresiva. El sistema combina ambas fuentes de información, con mayor peso asignado a los datos conductuales reales a medida que estos se vuelven disponibles.
+
+## Problema 2 --- Mailing Personalizado
+
+El desafío central de este problema radica en que los huéspedes, en la mayoría de los casos, no repiten exactamente el mismo hotel, sino que buscan variedad dentro de un estilo o tipo de experiencia preferida.
+
+### Clustering de Hoteles
+
+En primer lugar, se agrupan los hoteles de la cadena por sus características objetivas: tipo de entorno (playa, ciudad, montaña), categoría (lujo, estándar, boutique) y perfil de actividades disponibles. Cada cluster resultante representa un tipo de experiencia hotelera. El objetivo es recomendar el **tipo** de hotel adecuado para el perfil del huésped, sin limitarse a la misma propiedad visitada con anterioridad.
+
+### Caracterización y Discriminación por Segmento
+
+Para cada segmento de huéspedes identificado en P1, se aplican técnicas de **caracterización** (Han et al., 2012) con el fin de describir qué tipos de hoteles frecuenta ese segmento con mayor asiduidad. Por ejemplo:
+
+- Segmento "familias": predominio de visitas en hoteles de playa con actividades para niños.
+- Segmento "viajeros de negocios": predominio de visitas en hoteles de ciudad de categoría superior.
+
+Del análisis de **discriminación** entre segmentos se derivan reglas simples de asignación: *"huésped del segmento X $\rightarrow$ enviar publicaciones de hoteles del cluster Y."*
+
+### Clasificación para Ranking
+
+A fin de refinar la selección, se construye un clasificador que, dado el perfil completo de un huésped, predice la probabilidad de interés en cada tipo de hotel. La salida es un ranking de tipos de hotel por probabilidad estimada de reserva, a partir del cual se seleccionan los tres primeros para incluir en el mailing. Las evaluaciones negativas registradas en estadías previas operan como señal de exclusión: ante una calificación baja en un tipo de hotel, su posición en el ranking se reduce de forma proporcional.
+
+\newpage
+
+# Evaluación de Patrones (*Pattern Evaluation*)
+
+Han et al. (2012) establecen que no todos los patrones descubiertos por un sistema de minería de datos resultan de interés. Un patrón es considerado interesante si cumple cuatro condiciones: es fácilmente comprensible por los usuarios, es válido en datos nuevos con cierto grado de certeza, es potencialmente útil y resulta novedoso. Las métricas objetivas definidas por los autores para evaluar patrones incluyen el *support*, la *confidence*, la *accuracy* y la *coverage*.
+
+```{r tabla-metricas}
+metricas <- data.frame(
+  Metrica        = c("Support", "Confidence", "Accuracy", "Coverage",
+                     "Accuracy del clasificador", "Tasa de conversión"),
+  `Qué mide`     = c(
+    "Frecuencia de la regla en el historial de estadías",
+    "Certeza condicional de la regla de asociación",
+    "Proporción de clasificaciones correctas del árbol de decisión",
+    "Proporción de huéspedes para los que el modelo genera una recomendación",
+    "Predicciones correctas de interés en tipo de hotel",
+    "Reservas generadas sobre el total de mailings enviados"
+  ),
+  `Umbral y uso` = c(
+    "Descartar reglas con support < 1% de estadías",
+    "Descartar reglas con confidence < 50%",
+    "Evaluar sobre datos no utilizados en el entrenamiento",
+    "El sistema debe cubrir al menos el 80% de los huéspedes activos",
+    "Evaluar sobre historial no utilizado en el entrenamiento",
+    "Comparar contra campaña de mailing no personalizada"
+  ),
+  Problema       = c("P1", "P1", "P1", "P1", "P2", "P2"),
+  check.names    = FALSE
+)
+
+knitr::kable(
+  metricas,
+  booktabs = TRUE,
+  caption  = "Métricas de evaluación de patrones por problema",
+  align    = c("l", "l", "l", "c"),
+  linesep  = ""
+) |>
+  kableExtra::kable_styling(latex_options = c("HOLD_position", "scale_down")) |>
+  kableExtra::column_spec(2, width = "4.5cm") |>
+  kableExtra::column_spec(3, width = "4.5cm")
+```
+
+*Nota.* Las métricas de *support*, *confidence*, *accuracy* y *coverage* se definen en Han et al. (2012). Elaboración propia.
+
+\newpage
+
+# Presentación del Conocimiento (*Knowledge Presentation*)
+
+La presentación del conocimiento tiene por objetivo comunicar los resultados del proceso de minería de forma comprensible y accionable para los usuarios finales, quienes en la mayoría de los casos no poseen formación técnica en el área (Han et al., 2012).
+
+## Entregables para el Problema 1
+
+El sistema de recomendación de anuncios presenta sus resultados de la siguiente forma:
+
+- Indicación habitación por habitación del anuncio a emitir, con una justificación en lenguaje natural: *"Se muestra anuncio de spa dado que el huésped visitó el gimnasio en tres oportunidades y adquirió agua mineral."*
+- Las reglas IF-THEN derivadas del árbol de decisión se entregan al equipo de marketing en formato legible, sin requerir formación técnica en minería de datos.
+- **Seguimiento de efectividad por anuncio:** para cada anuncio emitido se registra si el huésped efectivamente utilizó el servicio recomendado, el tiempo transcurrido entre la emisión del anuncio y la acción, y si se realizó una compra asociada. Esto permite calcular una tasa de conversión por regla, que retroalimenta la etapa de evaluación de patrones: las reglas con conversión sistemáticamente baja se descartan o reemplazan, y el sistema mejora de forma continua. Este mecanismo de retroalimentación refleja el carácter iterativo del proceso KDD (Han et al., 2012).
+
+## Entregables para el Problema 2
+
+- Lista exportable por huésped con los tres hoteles recomendados, el puntaje asociado y el motivo de la recomendación.
+- Tabla resumen por segmento de huésped: tipo de hotel recomendado a cada segmento y justificación basada en el historial colectivo.
+
+## Entregables para la Gerencia
+
+- Gráficos de barras y tablas cruzadas (Han et al., 2012) que muestran qué categorías de anuncios obtienen mayor respuesta por segmento de huésped.
+- Evolución mensual de la tasa de conversión del mailing personalizado frente al mailing genérico previo, como indicador del valor agregado del sistema.
+- Descripción de los segmentos de huéspedes identificados en lenguaje de negocio, sin recurrir a terminología técnica.
+
+\newpage
+
+# Resumen
+
+```{r tabla-resumen}
+resumen <- data.frame(
+  `Paso KDD`   = c("1. Data Cleaning", "2. Data Integration",
+                   "3. Data Selection", "4. Data Transformation",
+                   "5. Data Mining (P1)", "5. Data Mining (P2)",
+                   "6. Pattern Evaluation", "7. Knowledge Presentation"),
+  `Implementación en el caso` = c(
+    "Estimación de faltantes, estandarización de formatos, clave compuesta (país + pasaporte), eliminación de duplicados",
+    "Data warehouse centralizado con perfil unificado por huésped",
+    "Atributos conductuales para P1; historial completo de estadías para P2",
+    "Discretización de edad, normalización de gasto, agregación de uso de servicios, proporciones por categoría",
+    "Reglas de asociación + árbol de decisión + clustering; estrategia en dos fases para cold start",
+    "Clustering de hoteles + caracterización por segmento + clasificación para ranking",
+    "Support/confidence (asociación); accuracy/coverage (clasificación); tasa de conversión (mailing)",
+    "Reglas IF-THEN para equipo de TV; lista de hoteles para marketing; gráficos para gerencia"
+  ),
+  `Tarea DM` = c("---", "---", "---", "---",
+                 "Asociación, Clasificación, Clustering, Caracterización",
+                 "Clustering, Caracterización, Clasificación",
+                 "---", "---"),
+  `Referencia` = c("Cap. 1.2, 1.7.1", "Cap. 1.2, 1.3.2", "Cap. 1.2", "Cap. 1.2",
+                "Cap. 1.4.1-1.4.4", "Cap. 1.4.1, 1.4.3-1.4.4",
+                "Cap. 1.4.6", "Cap. 1.4.6, 1.7.2"),
+  check.names = FALSE
+)
+
+knitr::kable(
+  resumen,
+  booktabs = TRUE,
+  caption  = "Resumen de la aplicación de la metodología KDD al caso hotelero",
+  align    = c("l", "l", "l", "l"),
+  linesep  = ""
+) |>
+  kableExtra::kable_styling(latex_options = c("HOLD_position", "scale_down")) |>
+  kableExtra::column_spec(1, bold = TRUE, width = "3cm") |>
+  kableExtra::column_spec(2, width = "5.5cm") |>
+  kableExtra::column_spec(3, width = "3.5cm") |>
+  kableExtra::column_spec(4, width = "2cm")
+```
+
+*Nota.* Todas las referencias de sección corresponden a Han et al. (2012). Elaboración propia.
+
+\newpage
+
+# Referencias
+
+\setlength{\parindent}{-0.5cm}
+\setlength{\leftskip}{0.5cm}
+\setlength{\parskip}{8pt}
+
+Han, J., Kamber, M., & Pei, J. (2012). *Data mining: Concepts and techniques* (3rd ed.). Morgan Kaufmann.
