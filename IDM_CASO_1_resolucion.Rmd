@@ -69,10 +69,6 @@ knitr::opts_chunk$set(
 
 {\large Marcos Antonio Maceo Reyes}
 
-\vspace{1em}
-
-{\large Nombre Apellido}
-
 \end{center}
 
 \newpage
