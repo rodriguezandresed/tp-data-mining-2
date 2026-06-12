@@ -135,7 +135,7 @@ A continuación se detallan las principales fuentes de imperfección de los dato
 
 ## Tratamiento propuesto
 
-- Los **campos numéricos faltantes** (edad, monto de gasto) se estiman a partir de los valores observados en huéspedes con perfil demográfico similar.
+- Los **campos numéricos faltantes** (edad, monto de gasto) se estiman mediante **imputación por k-vecinos más cercanos** (*kNN*): el valor ausente se completa a partir del promedio observado en los huéspedes de perfil demográfico más cercano según una métrica de distancia sobre los atributos disponibles. Esta técnica se prefiere a la imputación por la media global porque preserva la estructura local de los datos y no aplana la variabilidad del atributo.
 - Las **inconsistencias de formato** entre países se resuelven mediante reglas de estandarización aplicadas durante la importación de datos de cada hotel (fechas en formato ISO, montos convertidos a una moneda de referencia única).
 - Los **duplicados** se detectan a través de la clave compuesta `(código de país, número de pasaporte)`, que garantiza unicidad global. El número de pasaporte es único únicamente dentro de un mismo país, por lo que su combinación con el código de país resulta indispensable en un contexto internacional. El correo electrónico se emplea exclusivamente como dato de contacto, dado que los huéspedes pueden modificarlo o compartirlo entre miembros de una familia.
 - Los **comentarios en texto libre** se someten a una normalización de idioma y ortografía antes de cualquier procesamiento analítico.
@@ -282,6 +282,16 @@ La clasificación es definida por Han et al. (2012) como el proceso de construcc
 
 El modelo resultante se representa como un **árbol de decisión** (Han et al., 2012), cuyas ramas expresan reglas interpretables por el equipo de marketing, del tipo: *"si el huésped pertenece al grupo etario senior y utilizó el spa, mostrar anuncio de gastronomía; si pertenece al grupo joven y asistió al gimnasio, mostrar anuncio de actividades deportivas."* Con el perfil actualizado del huésped al término de cada día, el árbol predice la categoría de anuncio más relevante para el día siguiente.
 
+La elección del **árbol de decisión** como modelo principal se justifica por la interpretabilidad de sus reglas IF-THEN, requisito central dado que el equipo de marketing debe comprender y validar el criterio de cada recomendación. Frente a las alternativas estudiadas en la materia, el árbol resulta preferible a **k-vecinos más cercanos** (*kNN*) ---que, al ser un método perezoso (*lazy*), exige conservar todo el historial y calcular distancias en tiempo de inferencia, lo que encarece la respuesta en tiempo real--- y ofrece una explicación más transparente que **Naïve Bayes**, cuyas probabilidades condicionales resultan menos accionables para un usuario de negocio.
+
+### Clasificación Incremental con Naïve Bayes
+
+El perfil del huésped se actualiza al término de cada día de estadía, lo que hace de **Naïve Bayes** un complemento natural del árbol de decisión: se trata de un clasificador **incremental y de bajo costo computacional**, que recalcula las probabilidades a posteriori de cada categoría de anuncio a medida que se incorporan nuevos registros de uso de la tarjeta de acceso, sin necesidad de reentrenar el modelo completo. Bajo el supuesto de independencia condicional entre atributos, estima
+
+$$P(\text{categoría} \mid \text{perfil}) \propto P(\text{categoría}) \prod_i P(x_i \mid \text{categoría}).$$
+
+De este modo, el árbol aporta la regla interpretable que valida el equipo de marketing, mientras que Naïve Bayes provee una estimación probabilística que se ajusta día a día durante la estadía.
+
 ### Clustering
 
 El análisis de clustering, descripto en Han et al. (2012), permite agrupar objetos por similitud sin necesidad de etiquetas previas. En el presente caso, se emplea para segmentar a los huéspedes activos de acuerdo con su perfil de comportamiento. Cada segmento resultante tiene asociado un ranking de categorías de anuncios, construido a partir del historial de interacciones de huéspedes con perfil similar. Esta técnica resulta de especial utilidad cuando el historial individual de un huésped es aún escaso.
@@ -298,7 +308,7 @@ La estrategia propuesta opera en dos fases:
 - Pareja joven $\rightarrow$ anuncios de vida nocturna y actividades de aventura.
 - Adulto mayor con viaje individual $\rightarrow$ anuncios de gastronomía y tratamientos de spa.
 
-**Fase 2 --- Día 2 en adelante:** a medida que se acumulan registros de uso de la tarjeta de acceso, las reglas de asociación y el árbol de clasificación se incorporan de forma progresiva. El sistema combina ambas fuentes de información, con mayor peso asignado a los datos conductuales reales a medida que estos se vuelven disponibles.
+**Fase 2 --- Día 2 en adelante:** a medida que se acumulan registros de uso de la tarjeta de acceso, las reglas de asociación, el árbol de clasificación y el clasificador incremental **Naïve Bayes** se incorporan de forma progresiva. El sistema combina ambas fuentes de información, con mayor peso asignado a los datos conductuales reales a medida que estos se vuelven disponibles. La naturaleza incremental de Naïve Bayes resulta clave en esta transición, ya que permite reajustar la recomendación con cada nuevo dato sin reentrenar el modelo, atenuando de forma gradual el problema de *cold start*.
 
 ## Problema 2 --- Mailing Personalizado
 
@@ -321,20 +331,49 @@ Del análisis de **discriminación** entre segmentos se derivan reglas simples d
 
 A fin de refinar la selección, se construye un clasificador que, dado el perfil completo de un huésped, predice la probabilidad de interés en cada tipo de hotel. La salida es un ranking de tipos de hotel por probabilidad estimada de reserva, a partir del cual se seleccionan los tres primeros para incluir en el mailing. Las evaluaciones negativas registradas en estadías previas operan como señal de exclusión: ante una calificación baja en un tipo de hotel, su posición en el ranking se reduce de forma proporcional.
 
+La tarea exige un modelo que estime de forma directa una probabilidad por tipo de hotel. **Naïve Bayes** ofrece esa estimación probabilística de manera natural y eficiente, mientras que el **árbol de decisión** aporta la regla de asignación interpretable por el equipo de marketing; **kNN**, por su parte, permite recomendar a partir de los huéspedes históricamente más similares, a costa de un mayor costo de cómputo en inferencia. Combinar un modelo interpretable con uno probabilístico equilibra transparencia y precisión en la confección del ranking.
+
+## Minería de Texto y Análisis de Sentimiento
+
+El formulario de salida constituye una fuente de datos infrautilizada: además de las evaluaciones numéricas 1-5 por ítem, contiene **comentarios en texto libre** que expresan la opinión del huésped en lenguaje natural. Su explotación mediante **minería de texto** aporta una señal de calidad que retroalimenta a ambos problemas de negocio.
+
+Sobre los comentarios normalizados en el paso de limpieza se aplica el siguiente procesamiento:
+
+- **Vectorización** del texto mediante una representación de bolsa de palabras (*bag-of-words*) sobre los términos relevantes, previa tokenización y eliminación de palabras vacías.
+- **Clasificación de sentimiento** (positivo / neutro / negativo) mediante un clasificador **Naïve Bayes**, modelo ampliamente utilizado para la categorización de texto por su eficiencia y buen desempeño en espacios de alta dimensión. Las evaluaciones numéricas 1-5 proveen las etiquetas de entrenamiento, lo que permite construir el modelo sin necesidad de un etiquetado manual.
+- **Extracción de aspectos**: identificación de los temas mencionados con mayor frecuencia en los comentarios negativos (limpieza, atención, gastronomía, ruido), a fin de localizar el origen de la insatisfacción.
+
+El conocimiento extraído alimenta los dos problemas:
+
+- En **P1**, el sentimiento y los aspectos detectados evitan recomendar durante la estadía servicios sobre los que el huésped ya expresó insatisfacción, y permiten priorizar los valorados positivamente.
+- En **P2**, el sentimiento agregado por hotel y por tipo de hotel refina el ranking del mailing: un comentario negativo recurrente sobre un tipo de experiencia reduce su prioridad, más allá de la calificación numérica.
+
 \newpage
 
 # Evaluación de Patrones (*Pattern Evaluation*)
 
 Han et al. (2012) establecen que no todos los patrones descubiertos por un sistema de minería de datos resultan de interés. Un patrón es considerado interesante si cumple cuatro condiciones: es fácilmente comprensible por los usuarios, es válido en datos nuevos con cierto grado de certeza, es potencialmente útil y resulta novedoso. Las métricas objetivas definidas por los autores para evaluar patrones incluyen el *support*, la *confidence*, la *accuracy* y la *coverage*.
 
+## Metodología de evaluación de los modelos predictivos
+
+Los modelos de clasificación empleados (árbol de decisión, Naïve Bayes) se evalúan siguiendo la metodología estándar de la disciplina:
+
+- **Partición en entrenamiento, validación y prueba (*test*):** el modelo se ajusta sobre el primer conjunto, se calibra sobre el segundo y se mide sobre el tercero, de modo que la estimación del desempeño se realice siempre sobre datos no vistos durante el entrenamiento.
+- **Validación cruzada de $k$ particiones (*k-fold cross-validation*):** ante una cantidad limitada de datos etiquetados, el conjunto se divide en $k$ subconjuntos y se entrena $k$ veces, lo que produce una estimación del desempeño más robusta y de menor varianza.
+- **Matriz de confusión:** a partir de los verdaderos y falsos positivos y negativos se derivan métricas más informativas que la *accuracy* global ---**precision**, **recall** (sensibilidad) y su media armónica **F1**---, particularmente relevantes ante clases desbalanceadas, situación habitual cuando una categoría de anuncio es mucho menos frecuente que el resto.
+
 ```{r tabla-metricas}
 metricas <- data.frame(
-  Metrica        = c("Support", "Confidence", "Accuracy", "Coverage",
+  Metrica        = c("Support", "Confidence", "Accuracy",
+                     "Precision", "Recall (sensibilidad)", "F1", "Coverage",
                      "Accuracy del clasificador", "Tasa de conversión"),
   `Qué mide`     = c(
     "Frecuencia de la regla en el historial de estadías",
     "Certeza condicional de la regla de asociación",
     "Proporción de clasificaciones correctas del árbol de decisión",
+    "Proporción de recomendaciones positivas que resultan acertadas",
+    "Proporción de casos de interés real efectivamente detectados",
+    "Media armónica entre precision y recall",
     "Proporción de huéspedes para los que el modelo genera una recomendación",
     "Predicciones correctas de interés en tipo de hotel",
     "Reservas generadas sobre el total de mailings enviados"
@@ -343,11 +382,14 @@ metricas <- data.frame(
     "Descartar reglas con support < 1% de estadías",
     "Descartar reglas con confidence < 50%",
     "Evaluar sobre datos no utilizados en el entrenamiento",
+    "Priorizar cuando el costo de un anuncio irrelevante es alto",
+    "Priorizar para no omitir huéspedes interesados (costo del FN)",
+    "Métrica de resumen ante clases desbalanceadas",
     "El sistema debe cubrir al menos el 80% de los huéspedes activos",
-    "Evaluar sobre historial no utilizado en el entrenamiento",
+    "Evaluar con validación cruzada sobre datos no utilizados en el entrenamiento",
     "Comparar contra campaña de mailing no personalizada"
   ),
-  Problema       = c("P1", "P1", "P1", "P1", "P2", "P2"),
+  Problema       = c("P1", "P1", "P1", "P1/P2", "P1/P2", "P1/P2", "P1", "P2", "P2"),
   check.names    = FALSE
 )
 
@@ -364,6 +406,8 @@ knitr::kable(
 ```
 
 *Nota.* Las métricas de *support*, *confidence*, *accuracy* y *coverage* se definen en Han et al. (2012). Elaboración propia.
+
+El riesgo principal en esta etapa es el **sobreajuste (*overfitting*)**: un modelo que memoriza el conjunto de entrenamiento ---un árbol excesivamente profundo es el caso típico--- alcanza una *accuracy* elevada en entrenamiento pero generaliza mal sobre huéspedes nuevos. Para mitigarlo se aplica **poda (*pruning*)** del árbol y se comparan sistemáticamente las métricas de entrenamiento y de prueba: una brecha amplia entre ambas es señal de sobreajuste. Asimismo, la evaluación es **sensible al costo**: omitir a un huésped potencialmente interesado (falso negativo) tiene un costo de oportunidad distinto al de mostrar un anuncio irrelevante (falso positivo), por lo que el umbral de decisión se calibra en función de esa asimetría y no únicamente para maximizar la *accuracy* global.
 
 \newpage
 
@@ -392,6 +436,17 @@ El sistema de recomendación de anuncios presenta sus resultados de la siguiente
 
 \newpage
 
+# Consideraciones de Privacidad y Ética
+
+El caso involucra el tratamiento de **datos personales sensibles** de huéspedes de distintos países ---documentos de identidad, demografía, comportamiento de consumo y opiniones expresadas en texto libre---, por lo que la dimensión ética y legal debe integrarse al proceso KDD (Han et al., 2012, §1.7).
+
+- **Consentimiento y finalidad:** el uso de los datos para recomendación publicitaria y mailing debe estar amparado por el consentimiento del huésped y limitarse a la finalidad informada al momento de la recolección.
+- **Marco regulatorio internacional:** al operar la cadena en múltiples países, el tratamiento debe contemplar las normativas de protección de datos aplicables en cada jurisdicción (por ejemplo, el RGPD europeo), lo que condiciona la transferencia de datos entre propiedades.
+- **Minería de datos que preserva la privacidad (*privacy-preserving data mining*):** siempre que sea posible, el análisis opera sobre datos **anonimizados o seudonimizados**, disociando el identificador del huésped de los atributos utilizados para el modelado. La segmentación y la recomendación pueden construirse a nivel de perfil agregado, sin exponer la identidad individual.
+- **Transparencia y no discriminación:** las reglas de recomendación deben auditarse para evitar sesgos que deriven en un trato discriminatorio por origen, edad u otros atributos protegidos.
+
+\newpage
+
 # Resumen
 
 ```{r tabla-resumen}
@@ -405,9 +460,9 @@ resumen <- data.frame(
     "Data warehouse centralizado con perfil unificado por huésped",
     "Atributos conductuales para P1; historial completo de estadías para P2",
     "Discretización de edad, normalización de gasto, agregación de uso de servicios, proporciones por categoría",
-    "Reglas de asociación + árbol de decisión + clustering; estrategia en dos fases para cold start",
-    "Clustering de hoteles + caracterización por segmento + clasificación para ranking",
-    "Support/confidence (asociación); accuracy/coverage (clasificación); tasa de conversión (mailing)",
+    "Asociación + árbol de decisión + Naïve Bayes incremental + clustering; minería de texto/sentimiento sobre comentarios; estrategia en dos fases para cold start",
+    "Clustering de hoteles + caracterización por segmento + clasificación (Naïve Bayes/árbol) para ranking; sentimiento por tipo de hotel",
+    "Support/confidence (asociación); accuracy/precision/recall/F1 con validación cruzada y control de sobreajuste; tasa de conversión (mailing)",
     "Reglas IF-THEN para equipo de TV; lista de hoteles para marketing; gráficos para gerencia"
   ),
   `Tarea DM` = c("---", "---", "---", "---",
