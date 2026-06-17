@@ -27,7 +27,7 @@ header-includes:
   - \renewcommand\contentsname{\'Indice}
   - \pagestyle{fancy}
   - \fancyhf{}
-  - \fancyhead[L]{\small IDM --- Caso 1}
+  - '\fancyhead[L]{\small IDM: Implementación KDD}'
   - \fancyhead[R]{}
   - \fancyfoot[C]{\thepage}
   - \renewcommand{\headrulewidth}{0.4pt}
@@ -67,11 +67,15 @@ knitr::opts_chunk$set(
 
 \vspace{1em}
 
-{\large Nombre Apellido}
+{\large Ulises Catalano}
 
 \vspace{1em}
 
-{\large Nombre Apellido}
+{\large Juan Pablo Fara}
+
+\vspace{1em}
+
+{\large Marcos Maceo}
 
 \end{center}
 
@@ -162,7 +166,7 @@ El proceso de extracción, transformación y carga (ETL) opera de forma periódi
 
 La selección de datos consiste en la recuperación, desde el repositorio integrado, de los atributos y registros pertinentes para la tarea de análisis específica (Han et al., 2012). No todos los datos disponibles resultan relevantes para cada problema; esta etapa permite reducir la dimensionalidad y eliminar el ruido irrelevante.
 
-## Para el Problema 1 --- Anuncios durante la estadía
+## Para el Problema 1: Anuncios durante la estadía
 
 Para cada huésped activo, se seleccionan los siguientes atributos:
 
@@ -173,7 +177,7 @@ Para cada huésped activo, se seleccionan los siguientes atributos:
 
 Se excluyen los registros de huéspedes con estadía de una única noche, dado que el tiempo disponible es insuficiente para el aprendizaje de preferencias. Asimismo, se descartan los atributos con una proporción elevada de valores faltantes que no puedan estimarse de forma confiable.
 
-## Para el Problema 2 --- Mailing personalizado
+## Para el Problema 2: Mailing personalizado
 
 Del historial completo de la cadena se seleccionan:
 
@@ -260,7 +264,7 @@ El resultado de esta etapa es un vector de atributos numéricos por huésped, ap
 
 La minería de datos constituye el paso central del proceso KDD: en esta etapa se aplican métodos inteligentes sobre los datos preparados para extraer patrones de interés, clasificados en tareas **descriptivas** (caracterización, discriminación, asociación, clustering) y **predictivas** (clasificación, regresión) (Han et al., 2012).
 
-## Problema 1a --- Anuncios durante la estadía
+## Problema 1a: Anuncios durante la estadía
 
 ### Reglas de Asociación
 
@@ -286,21 +290,21 @@ El modelo resultante se representa como un **árbol de decisión** (Han et al., 
 
 El análisis de clustering, descripto en Han et al. (2012), permite agrupar objetos por similitud sin necesidad de etiquetas previas. En el presente caso, se emplea para segmentar a los huéspedes activos de acuerdo con su perfil de comportamiento. Cada segmento resultante tiene asociado un ranking de categorías de anuncios, construido a partir del historial de interacciones de huéspedes con perfil similar. Esta técnica resulta de especial utilidad cuando el historial individual de un huésped es aún escaso.
 
-## Problema 1b --- Primeros Días de la Estadía (*Cold Start*)
+## Problema 1b: Primeros Días de la Estadía (*Cold Start*)
 
 Al momento de la llegada, el huésped no dispone de historial conductual en la estadía actual. Solo se cuenta con los datos demográficos relevados en el check-in y las respuestas al cuestionario inicial. Este subproblema responde al requerimiento explícito del caso de ofrecer una sugerencia razonable durante los primeros días, cuando el sistema dispone de escasas oportunidades de aprender los hábitos del huésped.
 
 La estrategia propuesta opera en dos fases:
 
-**Fase 1 --- Día 1:** mediante las técnicas de **caracterización y discriminación** (Han et al., 2012), se analiza el historial de huéspedes anteriores para identificar qué rasgos demográficos distinguen a los grupos con respuesta diferenciada por categoría de anuncio. El resultado es un conjunto de segmentos predefinidos sobre la base demográfica:
+**Fase 1, Día 1:** mediante las técnicas de **caracterización y discriminación** (Han et al., 2012), se analiza el historial de huéspedes anteriores para identificar qué rasgos demográficos distinguen a los grupos con respuesta diferenciada por categoría de anuncio. El resultado es un conjunto de segmentos predefinidos sobre la base demográfica:
 
 - Familia con hijos $\rightarrow$ anuncios de actividades infantiles y excursiones familiares.
 - Pareja joven $\rightarrow$ anuncios de vida nocturna y actividades de aventura.
 - Adulto mayor con viaje individual $\rightarrow$ anuncios de gastronomía y tratamientos de spa.
 
-**Fase 2 --- Día 2 en adelante:** a medida que se acumulan registros de uso de la tarjeta de acceso, las reglas de asociación y el árbol de clasificación se incorporan de forma progresiva. El sistema combina ambas fuentes de información, con mayor peso asignado a los datos conductuales reales a medida que estos se vuelven disponibles.
+**Fase 2, Día 2 en adelante:** a medida que se acumulan registros de uso de la tarjeta de acceso, las reglas de asociación y el árbol de clasificación se incorporan de forma progresiva. El sistema combina ambas fuentes de información, con mayor peso asignado a los datos conductuales reales a medida que estos se vuelven disponibles.
 
-## Problema 2 --- Mailing Personalizado
+## Problema 2: Mailing Personalizado
 
 El desafío central de este problema radica en que los huéspedes, en la mayoría de los casos, no repiten exactamente el mismo hotel, sino que buscan variedad dentro de un estilo o tipo de experiencia preferida.
 
@@ -410,10 +414,10 @@ resumen <- data.frame(
     "Support/confidence (asociación); accuracy/coverage (clasificación); tasa de conversión (mailing)",
     "Reglas IF-THEN para equipo de TV; lista de hoteles para marketing; gráficos para gerencia"
   ),
-  `Tarea DM` = c("---", "---", "---", "---",
+  `Tarea DM` = c("N/A", "N/A", "N/A", "N/A",
                  "Asociación, Clasificación, Clustering, Caracterización",
                  "Clustering, Caracterización, Clasificación",
-                 "---", "---"),
+                 "N/A", "N/A"),
   `Referencia` = c("Cap. 1.2, 1.7.1", "Cap. 1.2, 1.3.2", "Cap. 1.2", "Cap. 1.2",
                 "Cap. 1.4.1-1.4.4", "Cap. 1.4.1, 1.4.3-1.4.4",
                 "Cap. 1.4.6", "Cap. 1.4.6, 1.7.2"),
