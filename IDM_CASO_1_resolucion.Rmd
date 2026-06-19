@@ -63,11 +63,19 @@ knitr::opts_chunk$set(
 
 \vspace{2.5em}
 
-{\large Andres Eduardo Rodriguez Hernandez}
+{\large Ulises Catalano}
 
 \vspace{1em}
 
-{\large Marcos Antonio Maceo Reyes}
+{\large Juan Pablo Fara}
+
+\vspace{1em}
+
+{\large Marcos Maceo}
+
+\vspace{1em}
+
+{\large Andres Rodriguez}
 
 \end{center}
 
@@ -133,7 +141,7 @@ A continuación se detallan las principales fuentes de imperfección de los dato
 
 - Los **campos numéricos faltantes** (edad, monto de gasto) se estiman mediante **imputación por k-vecinos más cercanos** (*kNN*): el valor ausente se completa a partir del promedio observado en los huéspedes de perfil demográfico más cercano según una métrica de distancia sobre los atributos disponibles. Esta técnica se prefiere a la imputación por la media global porque preserva la estructura local de los datos y no aplana la variabilidad del atributo.
 - Las **inconsistencias de formato** entre países se resuelven mediante reglas de estandarización aplicadas durante la importación de datos de cada hotel (fechas en formato ISO, montos convertidos a una moneda de referencia única).
-- Los **duplicados** se detectan a través de la clave compuesta `(código de país, número de pasaporte)`, que garantiza unicidad global. El número de pasaporte es único únicamente dentro de un mismo país, por lo que su combinación con el código de país resulta indispensable en un contexto internacional. El correo electrónico se emplea exclusivamente como dato de contacto, dado que los huéspedes pueden modificarlo o compartirlo entre miembros de una familia.
+- Los **duplicados** se resuelven mediante la construcción de un identificador canónico del huésped (`guest_id`) a partir de reglas de **vinculación de registros** (*record linkage*). La combinación `(código de país, número de pasaporte)` constituye la regla principal, ya que el número de pasaporte es único únicamente dentro de un mismo país y su combinación con el código de país resulta indispensable en un contexto internacional. No obstante, dado que en la práctica existen huéspedes sin pasaporte, documentos vencidos o modificados y errores de carga, la vinculación se complementa con atributos adicionales (correo electrónico, teléfono, fecha de nacimiento y nombre normalizado) para reconciliar los registros que refieren a una misma persona. El correo electrónico, en particular, se emplea como señal de apoyo y no como clave única, dado que los huéspedes pueden modificarlo o compartirlo entre miembros de una familia.
 - Los **comentarios en texto libre** se someten a una normalización de idioma y ortografía antes de cualquier procesamiento analítico.
 
 \newpage
@@ -148,7 +156,7 @@ Los datos de la cadena hotelera se encuentran distribuidos entre distintos hotel
 
 ## Implementación propuesta
 
-Se propone la construcción de un *data warehouse* centralizado que integre las siguientes fuentes: sistema de check-in, tarjeta de acceso, sistema de transacciones, formularios de evaluación e historial de estadías anteriores. La clave de integración entre fuentes es el identificador canónico del huésped: la combinación `(código de país, número de pasaporte)`, tal como se define en el paso anterior.
+Se propone la construcción de un *data warehouse* centralizado que integre las siguientes fuentes: sistema de check-in, tarjeta de acceso, sistema de transacciones, formularios de evaluación e historial de estadías anteriores. La clave de integración entre fuentes es el identificador canónico del huésped (`guest_id`) construido en el paso anterior mediante vinculación de registros, cuya regla principal es la combinación `(código de país, número de pasaporte)`.
 
 El proceso de extracción, transformación y carga (ETL) opera de forma periódica, con la importación de los registros generados por cada hotel durante el período anterior y su consolidación bajo el esquema unificado del *data warehouse*. Esto garantiza que la información disponible para el análisis sea consistente y comparable entre todas las propiedades de la cadena.
 
@@ -156,7 +164,7 @@ El proceso de extracción, transformación y carga (ETL) opera de forma periódi
 
 # Selección de Datos (*Data Selection*)
 
-La selección de datos consiste en la recuperación, desde el repositorio integrado, de los atributos y registros pertinentes para la tarea de análisis específica (Han et al., 2012). No todos los datos disponibles resultan relevantes para cada problema; esta etapa permite reducir la dimensionalidad y eliminar el ruido irrelevante.
+La selección de datos consiste en la recuperación, desde el repositorio integrado, de los atributos y registros pertinentes para la tarea de análisis específica (Han et al., 2012). No todos los datos disponibles resultan relevantes para cada problema; esta etapa permite reducir la dimensionalidad y descartar los atributos no pertinentes para cada tarea.
 
 ## Para el Problema 1: Anuncios durante la estadía
 
@@ -167,7 +175,7 @@ Para cada huésped activo, se seleccionan los siguientes atributos:
 - Registros de uso de la tarjeta de acceso durante la estadía en curso: servicios utilizados, frecuencia y franja horaria.
 - Historial de compras y servicios de estadías anteriores en la cadena.
 
-Se excluyen los registros de huéspedes con estadía de una única noche, dado que el tiempo disponible es insuficiente para el aprendizaje de preferencias. Asimismo, se descartan los atributos con una proporción elevada de valores faltantes que no puedan estimarse de forma confiable.
+Los huéspedes con estadía de una única noche se marcan con un atributo `estadia_corta` y se tratan como un segmento especial, en lugar de descartarlos por completo: si bien el tiempo disponible es insuficiente para el aprendizaje de preferencias durante la estadía (Problema 1), su información conserva valor para el mailing posterior y el análisis de conversiones rápidas (Problema 2). Asimismo, se descartan los atributos con una proporción elevada de valores faltantes que no puedan estimarse de forma confiable.
 
 ## Para el Problema 2: Mailing personalizado
 
@@ -243,6 +251,8 @@ knitr::kable(
 
 *Nota.* Elaboración propia.
 
+Si los registros de la tarjeta de acceso incluyeran también la **hora de egreso** de cada servicio, esta agregación podría refinarse calculando el **tiempo promedio de permanencia por día** en lugar de la mera frecuencia de acceso, dado que dos huéspedes con igual número de visitas pueden registrar permanencias muy dispares (por ejemplo, un minuto frente a dos horas en el gimnasio). Esta variante queda supeditada a la disponibilidad de los registros de egreso, que no necesariamente se relevan en el caso.
+
 ## Transformaciones sobre el historial de estadías (P2)
 
 - Los **tipos de hotel visitados** se expresan como frecuencia relativa de cada tipo (playa, ciudad, montaña) sobre el total de estadías del huésped.
@@ -278,7 +288,7 @@ La clasificación es definida por Han et al. (2012) como el proceso de construcc
 
 El modelo resultante se representa como un **árbol de decisión** (Han et al., 2012), cuyas ramas expresan reglas interpretables por el equipo de marketing, del tipo: *"si el huésped pertenece al grupo etario senior y utilizó el spa, mostrar anuncio de gastronomía; si pertenece al grupo joven y asistió al gimnasio, mostrar anuncio de actividades deportivas."* Con el perfil actualizado del huésped al término de cada día, el árbol predice la categoría de anuncio más relevante para el día siguiente.
 
-La elección del **árbol de decisión** como modelo principal se justifica por la interpretabilidad de sus reglas IF-THEN, requisito central dado que el equipo de marketing debe comprender y validar el criterio de cada recomendación. Frente a las alternativas estudiadas en la materia, el árbol resulta preferible a **k-vecinos más cercanos** (*kNN*) ---que, al ser un método perezoso (*lazy*), exige conservar todo el historial y calcular distancias en tiempo de inferencia, lo que encarece la respuesta en tiempo real--- y ofrece una explicación más transparente que **Naïve Bayes**, cuyas probabilidades condicionales resultan menos accionables para un usuario de negocio.
+La elección del **árbol de decisión** como modelo principal se justifica por la interpretabilidad de sus reglas IF-THEN, requisito central dado que el equipo de marketing debe comprender y validar el criterio de cada recomendación. Frente a las alternativas estudiadas en la materia, el árbol resulta preferible a **k-vecinos más cercanos** (*kNN*): este, al ser un método perezoso (*lazy*), exige conservar todo el historial y calcular distancias en tiempo de inferencia, lo que encarece la respuesta en tiempo real. Asimismo, el árbol ofrece una explicación más transparente que **Naïve Bayes**, cuyas probabilidades condicionales resultan menos accionables para un usuario de negocio.
 
 ### Clasificación Incremental con Naïve Bayes
 
@@ -294,7 +304,12 @@ El análisis de clustering, descripto en Han et al. (2012), permite agrupar obje
 
 ## Problema 1b: Primeros Días de la Estadía (*Cold Start*)
 
-Al momento de la llegada, el huésped no dispone de historial conductual en la estadía actual. Solo se cuenta con los datos demográficos relevados en el check-in y las respuestas al cuestionario inicial. Este subproblema responde al requerimiento explícito del caso de ofrecer una sugerencia razonable durante los primeros días, cuando el sistema dispone de escasas oportunidades de aprender los hábitos del huésped.
+Al momento de la llegada, ningún huésped dispone de historial conductual de la estadía actual. Conviene, no obstante, distinguir dos situaciones según la relación previa del huésped con la cadena:
+
+- **Huésped nuevo en la cadena:** solo se cuenta con los datos demográficos relevados en el check-in, las respuestas al cuestionario inicial, el tipo de viaje, el hotel actual y la duración esperada de la estadía.
+- **Huésped recurrente:** aunque no existan datos de la estadía en curso, sí se dispone de su historial conductual previo en otros hoteles de la cadena (servicios utilizados, compras, evaluaciones, tipos de hotel visitados y respuestas pasadas a promociones), que constituye una base mucho más rica para la sugerencia inicial.
+
+Este subproblema responde al requerimiento explícito del caso de ofrecer una sugerencia razonable durante los primeros días, cuando el sistema dispone de escasas oportunidades de aprender los hábitos del huésped en la estadía actual.
 
 La estrategia propuesta opera en dos fases:
 
@@ -303,6 +318,8 @@ La estrategia propuesta opera en dos fases:
 - Familia con hijos $\rightarrow$ anuncios de actividades infantiles y excursiones familiares.
 - Pareja joven $\rightarrow$ anuncios de vida nocturna y actividades de aventura.
 - Adulto mayor con viaje individual $\rightarrow$ anuncios de gastronomía y tratamientos de spa.
+
+Para el **huésped recurrente**, esta segmentación demográfica se combina desde el Día 1 con su historial conductual previo en la cadena, lo que permite una recomendación inicial más ajustada que la basada únicamente en el perfil demográfico.
 
 **Fase 2, Día 2 en adelante:** a medida que se acumulan registros de uso de la tarjeta de acceso, las reglas de asociación y el árbol de clasificación se incorporan de forma progresiva. El sistema combina ambas fuentes de información, con mayor peso asignado a los datos conductuales reales a medida que estos se vuelven disponibles.
 
@@ -356,7 +373,7 @@ Los modelos de clasificación empleados (árbol de decisión, Naïve Bayes) se e
 
 - **Partición en entrenamiento, validación y prueba (*test*):** el modelo se ajusta sobre el primer conjunto, se calibra sobre el segundo y se mide sobre el tercero, de modo que la estimación del desempeño se realice siempre sobre datos no vistos durante el entrenamiento.
 - **Validación cruzada de $k$ particiones (*k-fold cross-validation*):** ante una cantidad limitada de datos etiquetados, el conjunto se divide en $k$ subconjuntos y se entrena $k$ veces, lo que produce una estimación del desempeño más robusta y de menor varianza.
-- **Matriz de confusión:** a partir de los verdaderos y falsos positivos y negativos se derivan métricas más informativas que la *accuracy* global ---**precision**, **recall** (sensibilidad) y su media armónica **F1**---, particularmente relevantes ante clases desbalanceadas, situación habitual cuando una categoría de anuncio es mucho menos frecuente que el resto.
+- **Matriz de confusión:** a partir de los verdaderos y falsos positivos y negativos se derivan métricas más informativas que la *accuracy* global: **precision**, **recall** (sensibilidad) y su media armónica **F1**, particularmente relevantes ante clases desbalanceadas, situación habitual cuando una categoría de anuncio es mucho menos frecuente que el resto.
 
 ```{r tabla-metricas}
 metricas <- data.frame(
@@ -403,7 +420,7 @@ knitr::kable(
 
 *Nota.* Las métricas de *support*, *confidence*, *accuracy* y *coverage* se definen en Han et al. (2012). Elaboración propia.
 
-El riesgo principal en esta etapa es el **sobreajuste (*overfitting*)**: un modelo que memoriza el conjunto de entrenamiento ---un árbol excesivamente profundo es el caso típico--- alcanza una *accuracy* elevada en entrenamiento pero generaliza mal sobre huéspedes nuevos. Para mitigarlo se aplica **poda (*pruning*)** del árbol y se comparan sistemáticamente las métricas de entrenamiento y de prueba: una brecha amplia entre ambas es señal de sobreajuste. Asimismo, la evaluación es **sensible al costo**: omitir a un huésped potencialmente interesado (falso negativo) tiene un costo de oportunidad distinto al de mostrar un anuncio irrelevante (falso positivo), por lo que el umbral de decisión se calibra en función de esa asimetría y no únicamente para maximizar la *accuracy* global.
+El riesgo principal en esta etapa es el **sobreajuste (*overfitting*)**: un modelo que memoriza el conjunto de entrenamiento (un árbol excesivamente profundo es el caso típico) alcanza una *accuracy* elevada en entrenamiento pero generaliza mal sobre huéspedes nuevos. Para mitigarlo se aplica **poda (*pruning*)** del árbol y se comparan sistemáticamente las métricas de entrenamiento y de prueba: una brecha amplia entre ambas es señal de sobreajuste. Asimismo, la evaluación es **sensible al costo**: omitir a un huésped potencialmente interesado (falso negativo) tiene un costo de oportunidad distinto al de mostrar un anuncio irrelevante (falso positivo), por lo que el umbral de decisión se calibra en función de esa asimetría y no únicamente para maximizar la *accuracy* global.
 
 \newpage
 
@@ -434,7 +451,7 @@ El sistema de recomendación de anuncios presenta sus resultados de la siguiente
 
 # Consideraciones de Privacidad y Ética
 
-El caso involucra el tratamiento de **datos personales sensibles** de huéspedes de distintos países ---documentos de identidad, demografía, comportamiento de consumo y opiniones expresadas en texto libre---, por lo que la dimensión ética y legal debe integrarse al proceso KDD (Han et al., 2012, §1.7).
+El caso involucra el tratamiento de **datos personales sensibles** de huéspedes de distintos países, como documentos de identidad, demografía, comportamiento de consumo y opiniones expresadas en texto libre, por lo que la dimensión ética y legal debe integrarse al proceso KDD (Han et al., 2012, §1.7).
 
 - **Consentimiento y finalidad:** el uso de los datos para recomendación publicitaria y mailing debe estar amparado por el consentimiento del huésped y limitarse a la finalidad informada al momento de la recolección.
 - **Marco regulatorio internacional:** al operar la cadena en múltiples países, el tratamiento debe contemplar las normativas de protección de datos aplicables en cada jurisdicción (por ejemplo, el RGPD europeo), lo que condiciona la transferencia de datos entre propiedades.
